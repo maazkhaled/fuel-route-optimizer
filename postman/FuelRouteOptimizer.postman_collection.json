@@ -1,0 +1,143 @@
+{
+  "info": {
+    "name": "Fuel Route Optimizer",
+    "description": "Plan the cheapest fuel stops between two US locations (500-mile range, 10 mpg, starts with a full tank). Requests 1-7 are in demo order. Most use \"geometry\": \"none\" so the response stays readable on screen; the route line is shown in the map view (request 9).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000" }
+  ],
+  "item": [
+    {
+      "name": "1 - Chicago to Dallas (typed city names)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "Shows: 2 stops, total_fuel_cost, start.resolved_by = \"place_table\" (local lookup, no geocoding call), meta.external_api_calls = 1 routing call.",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Chicago, IL\",\n  \"finish\": \"Dallas, TX\",\n  \"geometry\": \"none\"\n}" }
+      }
+    },
+    {
+      "name": "2 - Chicago to Dallas again (cached, 0 external calls)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "Identical request. meta.external_api_calls.total is now 0 - the route came from cache.",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Chicago, IL\",\n  \"finish\": \"Dallas, TX\",\n  \"geometry\": \"none\"\n}" }
+      }
+    },
+    {
+      "name": "3 - Seattle to Miami (raw coordinates)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "Coordinate input: start.resolved_by = \"coordinates\". Long trip, several stops.",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": {\"lat\": 47.6062, \"lon\": -122.3321},\n  \"finish\": {\"lat\": 25.7617, \"lon\": -80.1918},\n  \"geometry\": \"none\"\n}" }
+      }
+    },
+    {
+      "name": "4 - Seattle to Miami with stop_penalty 0 (cheapest fuel, more stops)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "Same trip optimised for fuel cost alone: a slightly smaller fuel bill but many more stops. Compare with request 3 and with summary.fuel_only_optimum.",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": {\"lat\": 47.6062, \"lon\": -122.3321},\n  \"finish\": {\"lat\": 25.7617, \"lon\": -80.1918},\n  \"stop_penalty\": 0,\n  \"geometry\": \"none\"\n}" }
+      }
+    },
+    {
+      "name": "5 - Boston to Washington DC (under 500 miles, no stop needed)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "fuel_stops is empty and total_fuel_cost is 0 - the vehicle starts with a full tank. gallons_used is still reported.",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Boston, MA\",\n  \"finish\": \"Washington, DC\",\n  \"geometry\": \"none\"\n}" }
+      }
+    },
+    {
+      "name": "6 - Error: location outside the USA",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "London coordinates. Returns 400 with error.code = \"outside_usa\".",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"51.5074,-0.1278\",\n  \"finish\": \"Dallas, TX\"\n}" }
+      }
+    },
+    {
+      "name": "7 - Error: invalid body (missing finish)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "Returns 400 with error.code = \"invalid_request\".",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"New York, NY\"\n}" }
+      }
+    },
+    {
+      "name": "8 - Free-text address (the only case that calls a geocoder)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "Not a \"City, ST\" match, so it falls through to Nominatim once and is cached: start.resolved_by = \"nominatim\", meta.external_api_calls.geocoding = 1.",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"1600 Pennsylvania Ave NW, Washington, DC 20500\",\n  \"finish\": \"Denver, CO\",\n  \"geometry\": \"none\"\n}" }
+      }
+    },
+    {
+      "name": "9 - Map view (open in browser)",
+      "request": {
+        "method": "GET",
+        "description": "Browser page: route line, numbered stops, plan summary. Open this in Chrome rather than Postman.",
+        "url": {
+          "raw": "{{base_url}}/api/route/map/?start=Chicago, IL&finish=Dallas, TX",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", "map", ""],
+          "query": [
+            { "key": "start", "value": "Chicago, IL" },
+            { "key": "finish", "value": "Dallas, TX" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "10 - New York to Los Angeles (full response with route geometry)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "description": "Cross-country, including the GeoJSON LineString for the route. Large response - kept out of the main demo for readability.",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Los Angeles, CA\"\n}" }
+      }
+    },
+    {
+      "name": "11 - GET form with query params",
+      "request": {
+        "method": "GET",
+        "description": "The same endpoint also accepts GET, which is handy for quick browser checks.",
+        "url": {
+          "raw": "{{base_url}}/api/route/?start=Dallas, TX&finish=Austin, TX&geometry=none",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""],
+          "query": [
+            { "key": "start", "value": "Dallas, TX" },
+            { "key": "finish", "value": "Austin, TX" },
+            { "key": "geometry", "value": "none" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "12 - Health check",
+      "request": {
+        "method": "GET",
+        "description": "Confirms the app is up and how many stations are loaded (6,626).",
+        "url": "{{base_url}}/api/health/"
+      }
+    }
+  ]
+}
