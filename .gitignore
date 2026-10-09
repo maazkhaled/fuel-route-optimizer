@@ -1,15 +1,16 @@
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-env/
-db.sqlite3
-*.log
-.env
-.DS_Store
-.idea/
-.vscode/
-planner/data/sources/nominatim_cache.csv
 
 # Personal recording notes, not part of the deliverable
+*.log
+*.py[cod]
+.DS_Store
+.env
+.idea/
+.venv/
+.vscode/
+__pycache__/
+db.sqlite3
+docs/
 docs/LOOM_SCRIPT.md
+env/
+planner/data/sources/nominatim_cache.csv
+venv/

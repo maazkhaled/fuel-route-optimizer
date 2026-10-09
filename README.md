@@ -1,261 +1,179 @@
 # Fuel Route Optimizer
 
-A Django REST API that takes a start and finish anywhere in the USA and returns:
+A Django API that takes a start and a finish in the USA and tells you where to stop for fuel and how much it will cost. It returns the route, the fuel stops (with gallons to buy at each), and the total spent on fuel. There's also a small map page that draws it all.
 
-- the driving route (GeoJSON, plus an interactive map page),
-- where to fuel up and how many gallons to buy at each stop, chosen for low cost,
-- the total spent on fuel.
+The vehicle can go 500 miles on a tank, does 10 mpg (so a 50 gallon tank), and starts full. Prices come from the fuel price file that came with the assignment.
 
-The vehicle has a 500-mile range, gets 10 mpg (a 50-gallon tank) and starts with a full tank. Prices come from the provided OPIS truck-stop file.
+I wanted to keep the calls to the routing API down, so each trip makes one call to OSRM (a free routing server) and nothing else. City names and the ~6,600 stations are all looked up locally, and routes are cached, so asking for the same trip twice makes no external calls at all.
 
-**One external API call per trip.** The only network call is to the free [OSRM](https://project-osrm.org/) routing server. Locations like `"Dallas, TX"` and all ~6,600 stations are resolved locally, and routes are cached, so repeat requests make zero calls.
+## Running it
 
----
-
-## Quick start
-
-Requires Python 3.12+ (Django 6.1).
+You need Python 3.12 or newer.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate        # on Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python manage.py migrate        # creates SQLite DB and loads the 6,626 geocoded stations
+python manage.py migrate         # creates the SQLite DB and loads the stations
 python manage.py runserver
 ```
 
+Then:
+
 - API: `POST http://127.0.0.1:8000/api/route/`
-- Map: <http://127.0.0.1:8000/> (opens the map page with example trips)
+- Map page: http://127.0.0.1:8000/
 - Postman: import `postman/FuelRouteOptimizer.postman_collection.json`
-- Tests: `python manage.py test planner` (39 tests, no network needed)
+- Tests: `python manage.py test planner` (39 tests, none need the network)
 
-Docker alternative: `docker build -t fuel-route . && docker run -p 8000:8000 fuel-route`
+There's also a Dockerfile if you'd rather use that. No API keys are needed.
 
-No API keys are needed. Settings are environment variables with working defaults (see `.env.example`).
-
----
-
-## API
-
-### `POST /api/route/`
+## Using the API
 
 ```json
+POST /api/route/
 { "start": "Chicago, IL", "finish": "Dallas, TX" }
 ```
 
-| Field | Required | Description |
+| Field | Required | What it does |
 |---|---|---|
-| `start`, `finish` | yes | `"City, ST"` / `"City, State"`, a street address, `"lat,lon"`, or `{"lat": 41.88, "lon": -87.63}`. Must be in the USA. |
-| `geometry` | no | `simplified` (default), `full`, or `none`. Controls the route line returned. |
+| `start`, `finish` | yes | `"City, ST"`, a street address, `"lat,lon"`, or `{"lat": 41.88, "lon": -87.63}`. Has to be in the USA. |
+| `geometry` | no | `simplified` (default), `full` or `none`. How much of the route line to send back. |
 | `include_stations` | no | `true` also lists every station found along the route. |
-| `stop_penalty` | no | USD value of one extra stop (default `5`). `0` = cheapest fuel no matter how many stops. |
+| `stop_penalty` | no | What one extra stop is worth in dollars (default 5). Set it to 0 to get the cheapest fuel regardless of how many stops it takes. |
 
-The same parameters work as a query string on `GET /api/route/?start=...&finish=...`.
+The same options work as query params on `GET /api/route/`.
 
-<details>
-<summary><b>Example response</b> (real OSRM route, <code>geometry: "none"</code>)</summary>
+Here is a trimmed response for Chicago to Dallas:
 
 ```json
 {
-  "start":  { "query": "Chicago, IL", "label": "Chicago, IL", "lat": 41.85003, "lon": -87.65005, "resolved_by": "place_table" },
-  "finish": { "query": "Dallas, TX",  "label": "Dallas, TX",  "lat": 32.78306, "lon": -96.80667, "resolved_by": "place_table" },
+  "start":  { "label": "Chicago, IL", "lat": 41.85003, "lon": -87.65005, "resolved_by": "place_table" },
+  "finish": { "label": "Dallas, TX",  "lat": 32.78306, "lon": -96.80667, "resolved_by": "place_table" },
   "route": { "provider": "osrm", "distance_miles": 966.9, "duration_hours": 17.1 },
   "fuel_stops": [
     {
       "stop_number": 1,
-      "station": { "opis_id": 69861, "name": "HUCKS FOOD & FUEL #379", "address": "I-57, EXIT 53",
-                   "city": "Marion", "state": "IL", "lat": 37.73061, "lon": -88.93313 },
-      "mile_marker": 316.1, "miles_since_previous_fuel": 316.1, "off_route_miles": 1.4,
-      "price_per_gallon": 2.929, "fuel_on_arrival_gallons": 18.39, "gallons": 30.37, "cost": 88.95
+      "station": { "name": "HUCKS FOOD & FUEL #379", "address": "I-57, EXIT 53", "city": "Marion", "state": "IL" },
+      "mile_marker": 316.1, "off_route_miles": 1.4,
+      "price_per_gallon": 2.929, "gallons": 30.37, "cost": 88.95
     },
     {
       "stop_number": 2,
-      "station": { "opis_id": 68256, "name": "EXTRA MILE TRUCK STOP", "address": "I-30 EXIT 208",
-                   "city": "Hooks", "state": "TX", "lat": 33.46623, "lon": -94.28853 },
-      "mile_marker": 803.7, "miles_since_previous_fuel": 487.6, "off_route_miles": 0.3,
-      "price_per_gallon": 2.817, "fuel_on_arrival_gallons": 0.0, "gallons": 16.32, "cost": 45.98
+      "station": { "name": "EXTRA MILE TRUCK STOP", "address": "I-30 EXIT 208", "city": "Hooks", "state": "TX" },
+      "mile_marker": 803.7, "off_route_miles": 0.3,
+      "price_per_gallon": 2.817, "gallons": 16.32, "cost": 45.98
     }
   ],
-  "summary": {
-    "total_fuel_cost": 134.93, "currency": "USD", "fuel_stop_count": 2,
-    "gallons_purchased": 46.69, "gallons_used": 96.69,
-    "starting_fuel_gallons": 50.0, "fuel_at_finish_gallons": 0.0,
-    "average_price_paid": 2.89, "stations_along_route": 203, "stop_penalty_usd": 5.0,
-    "fuel_only_optimum": { "total_fuel_cost": 134.77, "fuel_stop_count": 4,
-                           "note": "Cheapest possible fuel bill if extra stops cost nothing." }
-  },
-  "assumptions": {
-    "vehicle_range_miles": 500.0, "miles_per_gallon": 10.0, "tank_gallons": 50.0,
-    "starts_with": "full tank", "total_fuel_cost_means": "money spent at fuel stops during this trip",
-    "optimises": "fuel cost + stop_penalty_usd per stop (avoids stopping for a few cents)",
-    "corridor_miles": 10.0, "station_location_precision": "town-level (source data has no coordinates)"
-  },
-  "meta": {
-    "external_api_calls": { "routing": 1, "geocoding": 0, "total": 1 },
-    "timings_ms": { "routing": 416.0, "planning": 8.4, "total": 425.1 }
-  },
-  "map_url": "http://127.0.0.1:8000/api/route/map/?start=Chicago%2C+IL&finish=Dallas%2C+TX"
+  "summary": { "total_fuel_cost": 134.93, "fuel_stop_count": 2, "gallons_used": 96.69 },
+  "meta": { "external_api_calls": { "routing": 1, "geocoding": 0, "total": 1 } }
 }
 ```
-</details>
 
-### `GET /api/route/map/?start=...&finish=...`
+The real response has more in it (the route line, assumptions, timings), but that's the shape.
 
-An interactive Leaflet map: the route, numbered fuel stops (click for price, gallons, cost), every station in the corridor, and a summary panel. It reuses the cached route, so opening `map_url` right after an API call makes no extra routing request.
+`GET /api/route/map/?start=...&finish=...` gives you the Leaflet map with the route, numbered stops and a summary panel. `GET /api/health/` just confirms the app is up and how many stations loaded.
 
-### `GET /api/health/`
-
-Returns `{"status": "ok", "stations_loaded": 6626, "places_loaded": 34760}`.
-
-### Errors
-
-All errors share one shape: `{"error": {"code": "...", "message": "...", "details": {...}}}`.
-
-| HTTP | `code` | When |
-|---|---|---|
-| 400 | `invalid_request` | Missing/malformed fields (`details` lists them) |
-| 400 | `outside_usa` | A location is outside the USA |
-| 400 | `same_location` | Start and finish are the same place |
-| 422 | `location_not_found` | Text could not be matched to a US location |
-| 422 | `no_route` | No drivable route (e.g. Honolulu → Dallas) |
-| 422 | `no_fuel_within_range` | Some stretch of the route has no station within 500 miles (`details` gives the miles) |
-| 502 | `routing_unavailable` | The routing service failed |
-| 503 | `geocoder_unavailable` | Free-text geocoding failed (City/ST and lat/lon still work) |
-
----
+Errors all look like `{"error": {"code": "...", "message": "..."}}`. The codes are `invalid_request`, `outside_usa`, `same_location`, `location_not_found`, `no_route`, `no_fuel_within_range`, `routing_unavailable` and `geocoder_unavailable`.
 
 ## How it works
 
-```
- start, finish ──► resolve locations ──► route (OSRM) ──► stations along route ──► fuel optimizer ──► JSON / map
-                   local table, 0 calls   1 call, cached   in-memory KD-tree        dynamic program
-```
+1. Turn the start and finish into coordinates.
+2. Ask OSRM for the driving route (one call, cached).
+3. Find the stations near that route.
+4. Work out where to buy fuel and how much.
 
-### 1. Station data: geocoded once, offline
+### The data
 
-> Full walkthrough with worked examples: **[docs/DATA_INGESTION.md](docs/DATA_INGESTION.md)**.
+There are really two datasets involved, and it helps to keep them apart.
 
-The price file has **no coordinates**, and its addresses are highway-exit descriptions (`"I-44, EXIT 283 & US-69"`) that geocoders can't resolve. Every row does have a town and state, so `python manage.py prepare_stations` places each station at its town:
+The first is the fuel price file from the assignment. It has a station name, address, city, state and a price, but no coordinates, and the addresses are things like `I-44, EXIT 283 & US-69` that a geocoder can't do anything with. So on its own I can't tell where a station is.
 
-| Step | Result |
-|---|---|
-| Raw rows | 8,151 |
-| Canadian rows dropped (AB, BC, ON, …) | −620 |
-| Duplicate listings of the same station ID merged | −905 (487 stations had different prices across listings; the lowest is kept, configurable with `--duplicate-price`) |
-| Stations | **6,626** |
-| Geocoded via GeoNames places | 5,703 |
-| Geocoded via US-Cities-Database (small towns) | 920 |
-| Geocoded via a manual alias (e.g. Henrico → Glen Allen, VA) | 3 |
-| **Coverage** | **100%** |
+The second is a table of US towns and their coordinates, which I put together from two open datasets: [GeoNames](https://www.geonames.org/) (via the `cities.json` package) and [kelvins/US-Cities-Database](https://github.com/kelvins/US-Cities-Database). It has about 34,700 places and no prices.
 
-The output (`planner/data/stations_geocoded.csv`) is committed and loaded by `migrate`, so nothing is geocoded at request time. The same 34,760-entry place table resolves user input like `"St. Louis, MO"` locally. Only unrecognised free text (a street address) falls back to Nominatim, which is cached.
+Every row in the price file does have a city and state, so I join the two on that. `python manage.py prepare_stations` does it, once, ahead of time:
 
-### 2. Route: one call
+- the raw file has 8,151 rows
+- 620 of those are Canadian, so they're dropped
+- 905 are duplicate listings of the same station ID, merged into one (the lowest price wins, since a few stations had different prices across listings)
+- that leaves 6,626 stations, and every one of them found a match (a handful needed a manual alias, like Henrico, VA mapping to Glen Allen)
 
-The app requests the route from OSRM with `overview=full&geometries=polyline6`. Polyline6 is about 5× smaller than GeoJSON: a New York → Los Angeles route is ~160 KB instead of ~0.8 MB. That trims transfer time, and the full resolution keeps matching accurate. If `ORS_API_KEY` is set, OpenRouteService is used as a fallback when OSRM fails.
+The result is saved as `planner/data/stations_geocoded.csv` and a migration loads it, which is why `migrate` is the only setup step. Nothing gets geocoded while the API is running.
 
-### 3. Stations along the route: local, in milliseconds
+The same town table is also what turns a typed `"Chicago, IL"` into coordinates, so that costs no API call either. Only a free-text street address falls through to Nominatim (OpenStreetMap's geocoder), and that result is cached.
 
-All stations are held in memory as NumPy arrays (loaded once per process). For each request:
+The catch is that stations end up at the centre of their town rather than at the actual pump. I deal with that in the next step.
 
-1. The route is resampled so points are ≤ 0.5 mi apart. OSRM only emits vertices at bends, and straight interstates can have miles between them.
-2. Stations are pre-filtered to the route's bounding box.
-3. A KD-tree over the route points (as 3D unit vectors, so distances are spherical) finds each station's nearest route point.
-4. A station is kept if it's within the **10-mile corridor**. Its **mile marker** is that route point's distance from the start.
+### Finding stations along the route
 
-The corridor is 10 miles because stations are located at their town's centre, which can be a few miles from the interstate exit. On the real Chicago → Dallas route the chosen stops were 0.3 and 1.4 miles off the line, at I-57 and I-30 exits, and the plan is identical at corridor widths of 3–15 miles.
+OSRM returns the route as a line. For each request I:
 
-### 4. The optimizer
+1. add points so there's one at least every half mile (OSRM only gives you points at bends, so a straight interstate can go miles without one)
+2. throw out stations outside the route's bounding box
+3. use a KD-tree to find each remaining station's nearest point on the route
+4. keep the ones within 10 miles, and record how far along the route they are (the mile marker)
 
-Every trip burns a fixed amount of fuel (distance ÷ 10 mpg), so the only decision is *where* to buy those gallons and *how many* at each stop.
+The corridor is 10 miles wide because of the town-centre problem above. On the real Chicago to Dallas route the stops it picked ended up 0.3 and 1.4 miles from the road, and the plan didn't change with corridors anywhere between 3 and 15 miles.
 
-**Cheapest plan (greedy, O(n)).** Treat the destination as a $0 station. At each station:
-- If a cheaper station is within 500 miles, buy only enough to reach the **first** cheaper one.
-- Otherwise this is the cheapest fuel reachable on a full tank: fill up.
+### Choosing where to fuel up
 
-"First cheaper station ahead" for every station comes from one monotonic-stack pass. A test checks this against an exact **linear-programming** solver on 600 random trips.
+The trip uses a fixed amount of fuel (distance divided by 10), so the only question is where to buy it.
 
-**Practical plan (default).** The pure cheapest plan can be silly when prices fall gradually. On Seattle → Miami it makes 22 stops, some buying half a gallon to save a cent. So the API minimises:
+The basic rule: at each station, if there's a cheaper one within 500 miles ahead, buy just enough to get to the first cheaper one. If there isn't, fill the tank. I treat the destination as a free station so the last leg works out. This gives the cheapest possible fuel bill, and I checked it against a linear programming solver on 600 random trips.
 
-```
-fuel cost + stop_penalty × number_of_stops        (stop_penalty defaults to $5)
-```
+The problem is that it can suggest silly plans. When prices drift down slowly it will stop over and over to save a cent: Seattle to Miami comes out at 22 stops. So the default is a second approach, a dynamic program that minimises fuel cost plus a penalty per stop ($5 by default, and you can change it with `stop_penalty`). It leans on a known result for this problem (Khuller, Malekian and Mestre, *To fill or not to fill: the gas station problem*) that you either fill up or buy just enough to reach the next stop, which keeps the search small. I checked it against brute force.
 
-This is an exact dynamic program over (station, fuel on arrival). It relies on a known property of the problem (Khuller, Malekian & Mestre, *To fill or not to fill: the gas station problem*): for consecutive stops, an optimal plan either fills the tank or buys just enough to reach the next stop. So the fuel you can arrive with is either 0, or a full tank minus the drive from some earlier stop. That keeps the state space small, and the DP is vectorised with NumPy. A test checks it against a brute-force search over every possible set of stops.
-
-| Synthetic interstate trip | Cheapest plan | Practical plan ($5/stop) |
+| Trip | Cheapest fuel only | Default ($5 per stop) |
 |---|---|---|
-| Seattle → Miami | 22 stops, $775.09 | **7 stops, $778.36** |
-| New York → Los Angeles | 10 stops, $601.43 | **6 stops, $604.43** |
-| Chicago → Dallas (real OSRM route) | 4 stops, $134.77 | **2 stops, $134.93** |
+| Seattle to Miami (synthetic route) | 22 stops, $775.09 | 7 stops, $778.36 |
+| New York to Los Angeles (synthetic route) | 10 stops, $601.43 | 6 stops, $604.43 |
+| Chicago to Dallas (real OSRM route) | 4 stops, $134.77 | 2 stops, $134.93 |
 
-The response reports both (`fuel_only_optimum`), so the trade-off is visible. Send `"stop_penalty": 0` for the pure cheapest plan.
-
----
+Every response includes the pure cheapest number as `fuel_only_optimum` so you can see what the penalty costs.
 
 ## Assumptions
 
-- The vehicle **starts with a full tank** (50 gal). `total_fuel_cost` is money spent at fuel stops during the trip, so a trip under 500 miles needs no stops and costs $0. `gallons_used` is always reported.
-- Range is exactly 500 miles with no safety reserve, so the plan may arrive at a stop nearly empty.
-- Fuel is bought only at stations in the file. A station listed multiple times uses its lowest price.
-- Distances to stations are measured along the route. The short detour off the highway to the station isn't charged.
-- Station positions are town-level (the data has no coordinates). `off_route_miles` is reported per stop.
+- The vehicle starts with a full tank, and `total_fuel_cost` only counts fuel bought along the way. So a trip under 500 miles needs no stops and costs $0 (`gallons_used` is still reported).
+- The range is exactly 500 miles with no safety reserve, so it can roll into a stop nearly empty.
+- The small detour from the highway to a station isn't charged for.
+- Station positions are town-level, because the data has no coordinates. Each stop reports `off_route_miles`.
 
-## Performance
+## Speed
 
-| Step | Time |
-|---|---|
-| Resolve `"City, ST"` | < 1 ms (local) |
-| OSRM route, cross-country | ~0.4 s (the only network call) |
-| Densify + match + optimise | ~5–15 ms |
-| Repeat request (cached route) | ~10–20 ms end to end |
-
-The station and place tables are loaded into memory when the WSGI app starts, so the first request doesn't pay for it.
+Looking up a `"City, ST"` takes under a millisecond. The OSRM call is the slow part at about 0.4 seconds for a cross-country route. Matching stations and optimising together take around 5 to 15 ms. A repeat request with a cached route comes back in roughly 10 to 20 ms. The station and town tables are loaded when the app starts, so the first request doesn't pay for that.
 
 ## Tests
 
-`python manage.py test planner`. 39 tests, all offline (the routing API is mocked):
+`python manage.py test planner` runs 39 tests with the routing API mocked. They cover the optimizer (including the LP and brute force checks), the geometry helpers, location parsing, and the API end to end, including a real OSRM Chicago to Dallas route saved as a fixture.
 
-- **Optimizer:** worked examples, the full-tank short trip, unreachable gaps, **LP optimality on 600 random trips**, and **brute-force optimality** of the stop-penalty DP.
-- **Geometry:** distances, resampling, polyline decoding (Google reference vector), simplification, US bounds.
-- **Locations:** City/ST variants (`St.`, `Ft`, ZIP, `", USA"`), coordinates, geocoder fallback and caching, errors.
-- **API end to end:** a **real OSRM Chicago → Dallas geometry** fixture, cross-country plans (range and tank invariants, cost totals), caching (0 calls on repeat), every error code, and the map page.
-
-## Project layout
+## Layout
 
 ```
-config/                     settings, root URLs
+config/                  settings and root URLs
 planner/
-  models.py                 FuelStation
-  views.py / urls.py        API, map page, health
-  serializers.py            request validation
-  exceptions.py             service errors -> consistent HTTP errors
+  views.py, urls.py      API, map page, health check
   services/
-    trip.py                 orchestrates one plan
-    optimizer.py            greedy cheapest plan + stop-penalty DP
-    stations.py             in-memory station index, corridor matching
-    routing.py              OSRM client (+ ORS fallback), caching
-    locations.py            input -> coordinates (local table first)
-    places.py               US place table, name normalisation
-    geo.py                  haversine, resampling, polyline, simplification
+    trip.py              runs one plan start to finish
+    optimizer.py         the greedy rule and the stop-penalty DP
+    stations.py          in-memory stations and corridor matching
+    routing.py           OSRM client (with an optional ORS fallback), caching
+    locations.py         turns input into coordinates
+    places.py            the town table and name cleanup
+    geo.py               distances, resampling, polyline decoding
   management/commands/
-    prepare_stations.py     raw CSV -> geocoded CSV (offline)
-    load_stations.py        reload the table from CSV
-  migrations/0002_*.py      loads stations on `migrate`
-  data/                     raw file, place sources, generated tables
-  templates/planner/map.html
+    prepare_stations.py  raw CSV to geocoded CSV (run once, offline)
+  data/                  raw file, place sources, generated tables
+  templates/planner/     the map page
   tests/
-postman/                    Postman collection
+postman/                 Postman collection
 ```
 
-## What I'd do next
+## If I had more time
 
-- **Exact station coordinates.** Match stations to OpenStreetMap fuel POIs by name and exit to replace town-level positions.
-- **PostgreSQL + PostGIS.** `ST_DWithin` and `ST_LineLocatePoint` would replace the in-memory index if the station set grew beyond memory.
-- **Self-hosted OSRM with a truck profile** (and no public rate limits), plus a shared Redis cache across workers.
-- **Detour-aware costs and a fuel reserve.** Charge the miles to leave the highway, and keep a configurable safety margin.
+- Get exact station coordinates, probably by matching stations to OpenStreetMap fuel locations by name and exit number.
+- Move to PostgreSQL with PostGIS if the station list got too big for memory.
+- Run my own OSRM with a truck profile and share the cache across workers with Redis.
+- Charge for the detour off the highway and keep a fuel reserve.
 
-## Data sources
+## Credits
 
-- Fuel prices: provided assessment file (`planner/data/raw/`).
-- Place coordinates: [GeoNames](https://www.geonames.org/) (CC BY 4.0, via the `cities.json` package) and [kelvins/US-Cities-Database](https://github.com/kelvins/US-Cities-Database) (MIT).
-- Routing: [OSRM](https://project-osrm.org/) public demo server. Map tiles: Esri World Street Map (Leaflet), data © OpenStreetMap contributors and others.
+Place coordinates are from GeoNames (CC BY 4.0) and kelvins/US-Cities-Database (MIT). Routing is the public [OSRM](https://project-osrm.org/) demo server. Map tiles are Esri World Street Map, drawn with Leaflet, with data from OpenStreetMap contributors and others.
